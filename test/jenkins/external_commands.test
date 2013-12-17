@@ -1,0 +1,154 @@
+#!/usr/bin/env python
+from __future__ import unicode_literals
+
+import sys
+import time
+import random
+
+import utils
+
+
+USERNAME = 'Icinga 2 Admin'
+
+
+def send_command(command):
+    return send_query('COMMAND [{0}] {1}'.format(int(time.time()), command))
+
+
+def send_query(query):
+    response = LIVESTATUS.query(query + '\nColumnHeaders: on')
+    if response:
+        header, result = response.pop(0), {}
+        return [dict((header[i], v) for i, v in enumerate(r)) for r in response]
+    return []
+
+
+def success(msg):
+    print '[OK] {0}'.format(msg).encode('utf-8')
+    return True
+
+
+def fail(msg):
+    print '[FAIL] {0}'.format(msg).encode('utf-8')
+    return False
+
+
+def test_host_comments(hostname):
+    comment = 'test{0:.4}'.format(random.random())
+    add_command = 'ADD_HOST_COMMENT;%s;{persistent};{author};{comment}' % hostname
+    del_command = 'DEL_HOST_COMMENT;{id}'
+    comment_query = '\n'.join(['GET comments', 'Filter: type = 1',
+                               'Filter: comment = {comment}',
+                               'Columns: id'])
+
+    send_command(add_command.format(persistent=0, author=USERNAME, comment=comment))
+    comment_info = next(iter(send_query(comment_query.format(comment=comment))), {})
+    if comment_info:
+        success('Successfully added comment to host "{0}"'.format(hostname))
+        send_command(del_command.format(id=comment_info['id']))
+        if any(send_query(comment_query.format(comment=comment))):
+            return fail('Could not remove comment with id #{0} from host "{1}"'
+                        ''.format(comment_info['id'], hostname))
+        return success('Successfully removed comment from host "{0}"'
+                           ''.format(hostname))
+    return fail('Could not add comment to host "{0}"'.format(hostname))
+
+
+def test_service_comments(hostname, servicename):
+    comment = 'test{0:.4}'.format(random.random())
+    add_command = 'ADD_SVC_COMMENT;%s;%s;{persistent};{author}' \
+                  ';{comment}' % (hostname, servicename)
+    del_command = 'DEL_SVC_COMMENT;{id}'
+    comment_query = '\n'.join(['GET comments', 'Filter: type = 2',
+                               'Filter: comment = {comment}',
+                               'Columns: id'])
+
+    send_command(add_command.format(persistent=0, author=USERNAME, comment=comment))
+    comment_info = next(iter(send_query(comment_query.format(comment=comment))), {})
+    if comment_info:
+        success('Successfully added comment to service "{0}" of host "{1}"'
+                ''.format(servicename, hostname))
+        send_command(del_command.format(id=comment_info['id']))
+        if any(send_query(comment_query.format(comment=comment))):
+            return fail('Could not remove comment with id #{0} from service "{1}"'
+                        ''.format(comment_info['id'], servicename))
+        return success('Successfully removed comment from service "{0}"'
+                       ''.format(servicename))
+    return fail('Could not add comment to service "{0}" of host "{1}"'
+                ''.format(servicename, hostname))
+
+
+def test_host_downtimes(hostname):
+    comment = 'test{0:.4}'.format(random.random())
+    start, end = time.time() + 20, time.time() + 320
+    add_command = 'SCHEDULE_HOST_DOWNTIME;%s;{start};{end};1;0' \
+                  ';0;{author};{comment}' % hostname
+    del_command = 'DEL_HOST_DOWNTIME;{id}'
+    downtime_query = '\n'.join(['GET downtimes', 'Filter: triggered_by = 0',
+                                'Filter: duration = 0', 'Filter: fixed = 1',
+                                'Filter: comment = {comment}',
+                                'Columns: id'])
+
+    send_command(add_command.format(start=start, end=end, author=USERNAME,
+                                    comment=comment))
+    downtime_info = next(iter(send_query(downtime_query.format(comment=comment))), {})
+    if downtime_info:
+        success('Successfully scheduled downtime for host "{0}"'.format(hostname))
+        send_command(del_command.format(id=downtime_info['id']))
+        if any(send_query(downtime_query.format(comment=comment))):
+            return fail('Could not remove downtime for host "{0}"'.format(hostname))
+        return success('Successfully removed downtime for host "{0}"'.format(hostname))
+    return fail('Could not schedule downtime for host "{0}"'.format(hostname))
+
+
+def test_service_downtimes(hostname, servicename):
+    comment = 'test{0:.4}'.format(random.random())
+    start, end = time.time() + 20, time.time() + 320
+    add_command = 'SCHEDULE_SVC_DOWNTIME;%s;%s;{start};{end};1;0;0' \
+                  ';{author};{comment}' % (hostname, servicename)
+    del_command = 'DEL_SVC_DOWNTIME;{id}'
+    downtime_query = '\n'.join(['GET downtimes', 'Filter: triggered_by = 0',
+                                'Filter: duration = 0', 'Filter: fixed = 1',
+                                'Filter: comment = {comment}',
+                                'Columns: id'])
+
+    send_command(add_command.format(start=start, end=end, author=USERNAME,
+                                    comment=comment))
+    downtime_info = next(iter(send_query(downtime_query.format(comment=comment))), {})
+    if downtime_info:
+        success('Successfully scheduled downtime for service "{0}" of host "{1}"'
+                ''.format(servicename, hostname))
+        send_command(del_command.format(id=downtime_info['id']))
+        if any(send_query(downtime_query.format(comment=comment))):
+            return fail('Could not remove downtime for service "{0}" of host "{1}"'
+                        ''.format(servicename, hostname))
+        return success('Successfully removed downtime for service "{0}" of host "{1}"'
+                       ''.format(servicename, hostname))
+    return fail('Could not schedule downtime for service "{0}" of host "{1}"'
+                ''.format(servicename, hostname))
+
+
+def main():
+    # Check whether host comments are properly processed
+    failure = test_host_comments('localhost')
+    failure = test_host_comments('nsca-ng')
+
+    # Check whether service comments are properly processed
+    failure = test_service_comments('localhost', 'disk')
+    failure = test_service_comments('nsca-ng', 'PassiveService1')
+
+    # Check whether host downtimes are properly processed
+    failure = test_host_downtimes('localhost')
+    failure = test_host_downtimes('nsca-ng')
+
+    # Check whether service downtimes are properly processed
+    failure = test_service_downtimes('localhost', 'disk')
+    failure = test_service_downtimes('nsca-ng', 'PassiveService1')
+
+    return 1 if failure else 0
+
+
+if __name__ == '__main__':
+    with utils.LiveStatusSocket('/var/run/icinga2/cmd/livestatus') as LIVESTATUS:
+        sys.exit(main())
+
