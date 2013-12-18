@@ -23,6 +23,10 @@ def send_query(query):
     return []
 
 
+def get_one(query):
+    return next(iter(send_query(query)), {})
+
+
 def success(msg):
     print '[OK] {0}'.format(msg).encode('utf-8')
     return True
@@ -42,11 +46,11 @@ def test_host_comments(hostname):
                                'Columns: id'])
 
     send_command(add_command.format(persistent=0, author=USERNAME, comment=comment))
-    comment_info = next(iter(send_query(comment_query.format(comment=comment))), {})
+    comment_info = get_one(comment_query.format(comment=comment))
     if comment_info:
         success('Successfully added comment to host "{0}"'.format(hostname))
         send_command(del_command.format(id=comment_info['id']))
-        if any(send_query(comment_query.format(comment=comment))):
+        if get_one(comment_query.format(comment=comment)):
             return fail('Could not remove comment with id #{0} from host "{1}"'
                         ''.format(comment_info['id'], hostname))
         return success('Successfully removed comment from host "{0}"'
@@ -64,12 +68,12 @@ def test_service_comments(hostname, servicename):
                                'Columns: id'])
 
     send_command(add_command.format(persistent=0, author=USERNAME, comment=comment))
-    comment_info = next(iter(send_query(comment_query.format(comment=comment))), {})
+    comment_info = get_one(comment_query.format(comment=comment))
     if comment_info:
         success('Successfully added comment to service "{0}" of host "{1}"'
                 ''.format(servicename, hostname))
         send_command(del_command.format(id=comment_info['id']))
-        if any(send_query(comment_query.format(comment=comment))):
+        if get_one(comment_query.format(comment=comment)):
             return fail('Could not remove comment with id #{0} from service "{1}"'
                         ''.format(comment_info['id'], servicename))
         return success('Successfully removed comment from service "{0}"'
@@ -91,11 +95,11 @@ def test_host_downtimes(hostname):
 
     send_command(add_command.format(start=start, end=end, author=USERNAME,
                                     comment=comment))
-    downtime_info = next(iter(send_query(downtime_query.format(comment=comment))), {})
+    downtime_info = get_one(downtime_query.format(comment=comment))
     if downtime_info:
         success('Successfully scheduled downtime for host "{0}"'.format(hostname))
         send_command(del_command.format(id=downtime_info['id']))
-        if any(send_query(downtime_query.format(comment=comment))):
+        if get_one(downtime_query.format(comment=comment)):
             return fail('Could not remove downtime for host "{0}"'.format(hostname))
         return success('Successfully removed downtime for host "{0}"'.format(hostname))
     return fail('Could not schedule downtime for host "{0}"'.format(hostname))
@@ -114,12 +118,12 @@ def test_service_downtimes(hostname, servicename):
 
     send_command(add_command.format(start=start, end=end, author=USERNAME,
                                     comment=comment))
-    downtime_info = next(iter(send_query(downtime_query.format(comment=comment))), {})
+    downtime_info = get_one(downtime_query.format(comment=comment))
     if downtime_info:
         success('Successfully scheduled downtime for service "{0}" of host "{1}"'
                 ''.format(servicename, hostname))
         send_command(del_command.format(id=downtime_info['id']))
-        if any(send_query(downtime_query.format(comment=comment))):
+        if get_one(downtime_query.format(comment=comment)):
             return fail('Could not remove downtime for service "{0}" of host "{1}"'
                         ''.format(servicename, hostname))
         return success('Successfully removed downtime for service "{0}" of host "{1}"'
@@ -128,22 +132,97 @@ def test_service_downtimes(hostname, servicename):
                 ''.format(servicename, hostname))
 
 
+def test_host_problem_acknowledgements(hostname):
+    comment = 'test{0:.4}'.format(random.random())
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};2;fail'.format(hostname))
+    send_command('ACKNOWLEDGE_HOST_PROBLEM;{0};0;0;0;{1};{2}'
+                 ''.format(hostname, USERNAME, comment))
+    ack_info = get_one('GET comments\nFilter: comment = {0}'
+                       '\nFilter: entry_type = 4\nColumns: id'.format(comment))
+    if ack_info:
+        success('Acknowledgement for host "{0}" has been processed'.format(hostname))
+        host_info = get_one('GET hosts\nFilter: name = {0}'
+                            '\nColumns: acknowledged'.format(hostname))
+        if host_info['acknowledged'] != 1:
+            return fail('Could not acknowledge problem on host "{0}"'.format(hostname))
+    else:
+        return fail('Acknowledgement for host "{0}" has not been processed'
+                    ''.format(hostname))
+    success('Successfully acknowledged problem on host "{0}"'.format(hostname))
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};0;ok'.format(hostname))
+    if get_one('GET comments\nFilter: id = {0}'.format(ack_info['id'])):
+        return fail('Non sticky acknowledgements are not removed if their host recovers')
+    success('Non sticky acknowledgements are removed if their host recovers')
+
+    comment = 'test{0:.4}'.format(random.random())
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};2;fail'.format(hostname))
+    send_command('ACKNOWLEDGE_HOST_PROBLEM;{0};1;0;0;{1};{2}'
+                 ''.format(hostname, USERNAME, comment))
+    ack_info = get_one('GET comments\nFilter: comment = {0}'
+                       '\nFilter: entry_type = 4\nColumns: id'.format(comment))
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};0;ok'.format(hostname))
+    if not get_one('GET comments\nFilter: id = {0}'.format(ack_info['id'])):
+        return fail('Sticky acknowledgements are removed if their host recovers')
+    send_command('DEL_HOST_COMMENT;{0}'.format(ack_info['id']))
+    success('Sticky acknowledgements need to be manually'
+            ' removed once their host has recovered')
+
+    host_info = get_one('GET hosts\nFilter: name = {0}\nColumns: acknowledged state'
+                        ''.format(hostname))
+    if host_info['state'] != 2 and host_info['acknowledged'] == 1:
+        return fail('Host "{0}" is still acknowledged though it is not DOWN anymore'
+                    ''.format(hostname))
+    return success('Hosts are not acknowledged anymore once their state changes')
+
+
+def test_remove_host_acknowledgements(hostname):
+    comment = 'test{0:.4}'.format(random.random())
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};2;fail'.format(hostname))
+    send_command('ACKNOWLEDGE_HOST_PROBLEM;{0};0;0;0;{1};{2}'
+                 ''.format(hostname, USERNAME, comment))
+    ack_info = get_one('GET comments\nFilter: comment = {0}\nColumns: id'
+                       ''.format(comment))
+    if not ack_info:
+        return fail('Acknowledgement for host "{0}" has not been processed'
+                    ''.format(hostname))
+    send_command('REMOVE_HOST_ACKNOWLEDGEMENT;{0}'.format(hostname))
+    if get_one('GET comments\nFilter: id = {0}'.format(ack_info['id'])):
+        return fail('Acknowledgement related comments are not removed'
+                    ' when manually removing an acknowledgement')
+    return success('Acknowledgement related comments are removed when'
+                   ' manually removing an acknowledgement')
+
+
+def test_expiring_host_acknowledgements(hostname):
+    comment, expire_time = 'test{0:.4}'.format(random.random()), time.time() + 5
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};2;fail'.format(hostname))
+    send_command('ACKNOWLEDGE_HOST_PROBLEM_EXPIRE;{0};0;0;0;{1};{2};{3}'
+                 ''.format(hostname, expire_time, USERNAME, comment))
+    time.sleep(expire_time - time.time())
+    host_info = get_one('GET hosts\nFilter: name = {0}\nColumns: acknowledged'
+                        ''.format(hostname))
+    if host_info['acknowledged'] == 1:
+        send_command('REMOVE_HOST_ACKNOWLEDGEMENT;{0}'.format(hostname))
+        return fail('Acknowledgements do not expire as desired')
+    return success('Acknowledgements do expire as desired')
+
+
 def main():
-    # Check whether host comments are properly processed
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
 
-    # Check whether service comments are properly processed
     failure = test_service_comments('localhost', 'disk')
     failure = test_service_comments('nsca-ng', 'PassiveService1')
 
-    # Check whether host downtimes are properly processed
     failure = test_host_downtimes('localhost')
     failure = test_host_downtimes('nsca-ng')
 
-    # Check whether service downtimes are properly processed
     failure = test_service_downtimes('localhost', 'disk')
     failure = test_service_downtimes('nsca-ng', 'PassiveService1')
+
+    failure = test_host_problem_acknowledgements('localhost')
+    failure = test_remove_host_acknowledgements('localhost')
+    failure = test_expiring_host_acknowledgements('localhost')
 
     return 1 if failure else 0
 
