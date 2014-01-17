@@ -640,6 +640,30 @@ def test_disabling_scheduling_service_checks(hostname, servicename):
                    ''.format(servicename, hostname))
 
 
+def test_shutdown_restart_process():
+    get_pid = lambda: subprocess.Popen("ps ax | grep icinga[2] | awk '{print $1}'",
+                                       shell=1, stdout=subprocess.PIPE).stdout.read()
+
+    send_command('SHUTDOWN_PROCESS')
+    time.sleep(2)
+    if get_pid():
+        return fail('Could not stop the icinga2 process by using SHUTDOWN_PROCESS')
+    success('Successfully stopped the icinga2 process with SHUTDOWN_PROCESS')
+    restart_icinga()
+    pid_before_restart = int(get_pid())
+    send_command('RESTART_PROCESS')
+    LIVESTATUS.close()
+    time.sleep(6)
+    pid_after_restart = get_pid()
+    if not pid_after_restart:
+        restart_icinga()
+        return fail('RESTART_PROCESS seems to just stop the process')
+    if int(pid_after_restart) == pid_before_restart:
+        return fail('RESTART_PROCESS does not restart the process at all')
+    LIVESTATUS.reconnect()
+    return success('Successfully restarted process by using RESTART_PROCESS')
+
+
 def main():
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
@@ -674,6 +698,8 @@ def main():
 
     failure = test_disabling_scheduling_host_checks('localhost')
     failure = test_disabling_scheduling_service_checks('localhost', 'disk')
+
+    failure = test_shutdown_restart_process()
 
     return 1 if failure else 0
 
