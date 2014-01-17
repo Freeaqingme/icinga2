@@ -2,6 +2,7 @@
 # coding: utf-8
 from __future__ import unicode_literals
 
+import os
 import sys
 import time
 import random
@@ -16,6 +17,7 @@ except ImportError:
 import utils
 
 
+ICINGA_UID = 'icinga'
 USERNAME = 'Icinga 2 Admin'
 MAX_CHECK_ATTEMPTS = 3
 
@@ -747,6 +749,37 @@ def test_passive_svc_checkresult_processing(hostname, servicename):
                    ' whose output data contains non-ascii characters')
 
 
+def test_process_file(hostname):
+    with open('/tmp/comments.txt', 'w') as f:
+        f.write("""[{2}] ADD_HOST_COMMENT;{0};0;{1};TheFirst
+[{3}] ADD_HOST_COMMENT;{0};0;{1};TheSecond
+[{4}] ADD_HOST_COMMENT;{0};0;{1};TheThird
+[{5}] ADD_HOST_COMMENT;{0};0;{1};TheFourth
+[{6}] ADD_HOST_COMMENT;{0};0;{1};TheFifth
+""".format(hostname, USERNAME, *[time.time() + i for i in xrange(4, 9)]))
+    os.system('sudo chown {0} /tmp/comments.txt'.format(ICINGA_UID))
+    send_command('PROCESS_FILE;{0};1'.format('/tmp/comments.txt'))
+
+    try:
+        with open('/tmp/comments.txt') as f:
+            pass
+    except IOError:
+        success('Files processed by PROCESS_FILE are deleted if'
+                ' the delete-option is set to a non-zero value')
+    else:
+        os.remove('/tmp/comments.txt')
+        return fail('Files processed by PROCESS_FILE are not deleted if'
+                    ' the delete-option is set to an non-zero value')
+
+    comments = send_query('GET comments\nColumns: id\nFilter: comment ~'
+                          ' ^The(First|Second|Third|Fourth|Fifth)$')
+    for comment in comments:
+        send_command('DEL_HOST_COMMENT;{0}'.format(comment['id']))
+    if len(comments) < 5:
+        return fail('Not all commands were processed by PROCESS_FILE')
+    return success('All commands were processed by PROCESS_FILE')
+
+
 def main():
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
@@ -786,6 +819,8 @@ def main():
 
     failure = test_passive_host_checkresult_processing('localhost')
     failure = test_passive_svc_checkresult_processing('localhost', 'disk')
+
+    failure = test_process_file('localhost')
 
     return 1 if failure else 0
 
