@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# coding: utf-8
 from __future__ import unicode_literals
 
 import sys
@@ -19,11 +20,12 @@ USERNAME = 'Icinga 2 Admin'
 MAX_CHECK_ATTEMPTS = 3
 
 
-def send_command(command):
+def send_command(command, quiet=False):
     try:
         return send_query('COMMAND [{0}] {1}'.format(int(time.time()), command))
     except utils.LiveStatusError, error:
-        sys.stderr.write('Failed to execute command: {0}\n\n{1}'.format(command, error))
+        if not quiet:
+            sys.stderr.write('Failed to execute command: {0}\n\n{1}'.format(command, error))
 
 
 def send_query(query):
@@ -664,6 +666,87 @@ def test_shutdown_restart_process():
     return success('Successfully restarted process by using RESTART_PROCESS')
 
 
+def test_passive_host_checkresult_processing(hostname):
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};1;blub'.format(hostname))
+    host_info = get_one('GET hosts\nFilter: name = {0}'
+                        '\nColumns: state plugin_output'.format(hostname))
+    if host_info['state'] != 1:
+        return fail('Could not submit a passive checkresult for host "{0}". Wrong'
+                    ' state: {1} != 1'.format(hostname, host_info['state']))
+    if host_info['plugin_output'] != 'blub':
+        return fail('Could not submit a passive checkresult for host "{0}". Wrong'
+                    ' output: "{1}" != "blub"'.format(hostname,
+                                                      host_info['plugin_output']))
+    success('Successfully submitted a passive checkresult for host "{0}"'
+            ''.format(hostname))
+    send_command('DISABLE_PASSIVE_HOST_CHECKS;{0}'.format(hostname))
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};0;nope'.format(hostname), True)
+    host_info = get_one('GET hosts\nFilter: name = {0}'
+                        '\nColumns: state'.format(hostname))
+    if host_info['state'] == 0:
+        send_command('ENABLE_PASSIVE_HOST_CHECKS;{0}'.format(hostname))
+        return fail('Submitted a passive checkresult for host "{0}" though the'
+                    ' submission of passive checkresults has been disabled'
+                    ''.format(hostname))
+    success('It is not possible to submit passive host checkresults'
+            ' while their submission has been disabled')
+    send_command('ENABLE_PASSIVE_HOST_CHECKS;{0}'.format(hostname))
+    send_command('PROCESS_HOST_CHECK_RESULT;{0};2;nope²'.format(hostname), True)
+    host_info = get_one('GET hosts\nFilter: name = {0}'
+                        '\nColumns: plugin_output'.format(hostname))
+    if host_info['plugin_output'] == 'nope²':
+        return fail('It is possible to submit a passive host checkresult'
+                    ' whose status code is 2 (UNREACHABLE)')
+    return success('It is not possible to submit a passive host checkresult'
+                   ' whose status code is 2 (UNREACHABLE)')
+
+
+def test_passive_svc_checkresult_processing(hostname, servicename):
+    send_command('PROCESS_SERVICE_CHECK_RESULT;{0};{1};1;blub'
+                 ''.format(hostname, servicename))
+    svc_info = get_one('GET services\nFilter: host_name = {0}'
+                       '\nFilter: description = {1}'
+                       '\nColumns: state plugin_output'
+                       ''.format(hostname, servicename))
+    if svc_info['state'] != 1:
+        return fail('Could not submit a passive checkresult for service'
+                    ' "{0}" on host "{1}". Wrong state: {2} != 1'
+                    ''.format(servicename, hostname, svc_info['state']))
+    if svc_info['plugin_output'] != 'blub':
+        return fail('Could not submit a passive checkresult for service'
+                    ' "{0}" on host "{1}". Wrong output: "{2}" != "blub"'
+                    ''.format(servicename, hostname, svc_info['plugin_output']))
+    success('Successfully submitted a passive checkresult for service'
+            ' "{0}" on host "{1}"'.format(servicename, hostname))
+    send_command('DISABLE_PASSIVE_SVC_CHECKS;{0};{1}'
+                 ''.format(hostname, servicename))
+    send_command('PROCESS_SERVICE_CHECK_RESULT;{0};{1};0;nope'
+                 ''.format(hostname, servicename), True)
+    svc_info = get_one('GET services\nFilter: host_name = {0}'
+                       '\nFilter: description = {1}\nColumns: state'
+                       ''.format(hostname, servicename))
+    if svc_info['state'] == 0:
+        send_command('ENABLE_PASSIVE_SVC_CHECKS;{0};{1}'
+                     ''.format(hostname, servicename))
+        return fail('Submitted a passive checkresult for service "{0}" on host '
+                    '"{1}" though the submission of passive checkresults has '
+                    'been disabled'.format(servicename, hostname))
+    success('It is not possible to submit passive service checkresults'
+            ' while their submission has been disabled')
+    send_command('ENABLE_PASSIVE_SVC_CHECKS;{0};{1}'
+                 ''.format(hostname, servicename))
+    send_command('PROCESS_SERVICE_CHECK_RESULT;{0};{1};0;yäh!'
+                 ''.format(hostname, servicename), True)
+    svc_info = get_one('GET services\nFilter: host_name = {0}'
+                       '\nFilter: description = {1}\nColumns: plugin_output'
+                       ''.format(hostname, servicename))
+    if svc_info['plugin_output'] != 'yäh!':
+        return fail('It is not possible to submit a passive service checkresult'
+                    ' whose output data contains non-ascii characters')
+    return success('It is possible to submit a passive service checkresult'
+                   ' whose output data contains non-ascii characters')
+
+
 def main():
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
@@ -700,6 +783,9 @@ def main():
     failure = test_disabling_scheduling_service_checks('localhost', 'disk')
 
     failure = test_shutdown_restart_process()
+
+    failure = test_passive_host_checkresult_processing('localhost')
+    failure = test_passive_svc_checkresult_processing('localhost', 'disk')
 
     return 1 if failure else 0
 
