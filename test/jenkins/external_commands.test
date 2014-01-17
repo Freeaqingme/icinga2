@@ -34,6 +34,17 @@ def send_query(query):
     return []
 
 
+def run_query(query, retries=3):
+    tries = 0
+    while True:
+        rs = next(iter(utils.run_mysql_query(query, b'/usr/bin/mysql')), {})
+        if tries == retries or any(True for v in rs.itervalues() if v is not None):
+            return rs
+        else:
+            tries += 1
+            time.sleep(1)
+
+
 def get_one(query):
     return next(iter(send_query(query)), {})
 
@@ -46,12 +57,12 @@ def restart_icinga():
 
 def success(msg):
     print '[OK] {0}'.format(msg).encode('utf-8')
-    return True
+    return False
 
 
 def fail(msg):
     print '[FAIL] {0}'.format(msg).encode('utf-8')
-    return False
+    return True
 
 
 def test_host_comments(hostname):
@@ -515,6 +526,120 @@ def test_delay_service_notification(hostname, servicename):
                    ' on host "{0}"'.format(servicename, hostname))
 
 
+def test_disabling_scheduling_host_checks(hostname):
+    # This test assumes that icinga is writing the hostchecks db table (DbCatCheck)
+    compare_time = lambda a, b: -2 < a - b < 2
+    start_time_query = ('SELECT UNIX_TIMESTAMP(MAX(start_time)) as start_time'
+                        ' FROM icinga_hostchecks AS c'
+                        ' INNER JOIN icinga_hosts AS h'
+                        ' ON h.host_object_id = c.host_object_id'
+                        ' WHERE h.alias = "{0}"'
+                        '').format(hostname)
+    # Need to use a sql query here because prior to this test another one ran
+    # which submitted a passive checkresult and with livestatus it is only
+    # possible to access the execution of the last result, which in this case
+    # is the passive one without a start and end time.
+    execution_time = float(run_query('SELECT MAX(c.execution_time) AS e_time'
+                                     ' FROM icinga_hostchecks AS c'
+                                     ' INNER JOIN icinga_hosts AS h'
+                                     ' ON h.host_object_id = c.host_object_id'
+                                     ' WHERE h.alias = "{0}"'
+                                     ''.format(hostname))['e_time'])
+
+    send_command('DISABLE_HOST_CHECK;{0}'.format(hostname))
+    scheduled_check = time.time() + 4
+    send_command('SCHEDULE_HOST_CHECK;{0};{1}'.format(hostname, scheduled_check))
+    time.sleep(execution_time + 4 + 5) # +5 as this is the transaction interval
+    last_check = float(run_query(start_time_query).get('start_time') or 0)
+    if compare_time(last_check, scheduled_check + execution_time):
+        send_command('ENABLE_HOST_CHECK;{0}'.format(hostname))
+        return fail('Could not disable active checks on host "{0}"'
+                    ''.format(hostname))
+    success('Successfully disabled active checks on host "{0}"'.format(hostname))
+    scheduled_check = time.time() + 4
+    send_command('SCHEDULE_FORCED_HOST_CHECK;{0};{1}'
+                 ''.format(hostname, scheduled_check))
+    time.sleep(execution_time + 4 + 5) # +5 as this is the transaction interval
+    last_check = float(run_query(start_time_query).get('start_time') or 0)
+    if not compare_time(last_check, scheduled_check + execution_time):
+        send_command('ENABLE_HOST_CHECK;{0}'.format(hostname))
+        return fail('Could not schedule a forced check on host "{0}" while'
+                    ' active checks were disabled'.format(hostname))
+    success('Successfully scheduled a forced check on host "{0}" '
+            'while active checks were disabled'.format(hostname))
+    send_command('ENABLE_HOST_CHECK;{0}'.format(hostname))
+    scheduled_check = time.time() + 4
+    send_command('SCHEDULE_HOST_CHECK;{0};{1}'
+                 ''.format(hostname, scheduled_check))
+    time.sleep(execution_time + 4 + 5) # +5 as this is the transaction interval
+    last_check = float(run_query(start_time_query).get('start_time') or 0)
+    if not compare_time(last_check, scheduled_check + execution_time):
+        return fail('Could not schedule a check after re-enabling '
+                    'active checks for host "{0}"'.format(hostname))
+    return success('Successfully scheduled a check on host "{0}" after'
+                   ' re-enabling active checks'.format(hostname))
+
+
+def test_disabling_scheduling_service_checks(hostname, servicename):
+    # This test assumes that icinga is writing the servicechecks db table (DbCatCheck)
+    start_time_query = ('SELECT UNIX_TIMESTAMP(MAX(start_time)) as start_time'
+                        ' FROM icinga_servicechecks AS c'
+                        ' INNER JOIN icinga_services AS s'
+                        ' ON s.service_object_id = c.service_object_id'
+                        ' INNER JOIN icinga_hosts as h'
+                        ' ON h.host_object_id = s.host_object_id'
+                        ' WHERE h.alias = "{0}" AND s.display_name = "{1}"'
+                        '').format(hostname, servicename)
+    compare_time = lambda a, b: -2 < a - b < 2
+    execution_time = float(run_query('SELECT MAX(c.execution_time) AS e_time'
+                                     ' FROM icinga_servicechecks AS c'
+                                     ' INNER JOIN icinga_services AS s'
+                                     ' ON s.service_object_id = c.service_object_id'
+                                     ' INNER JOIN icinga_hosts as h'
+                                     ' ON h.host_object_id = s.host_object_id'
+                                     ' WHERE h.alias = "{0}" AND s.display_name = "{1}"'
+                                     ''.format(hostname, servicename))['e_time'])
+
+    send_command('DISABLE_SVC_CHECK;{0};{1}'.format(hostname, servicename))
+    scheduled_check = time.time() + 4
+    send_command('SCHEDULE_SVC_CHECK;{0};{1};{2}'.format(hostname, servicename,
+                                                         scheduled_check))
+    time.sleep(execution_time + 4 + 5) # +5 as this is the transaction interval
+    last_check = float(run_query(start_time_query).get('start_time') or 0)
+    if compare_time(last_check, scheduled_check + execution_time):
+        send_command('ENABLE_SVC_CHECK;{0};{1}'.format(hostname, servicename))
+        return fail('Could not disable active checks for service "{0}" on host'
+                    ' "{1}"'.format(servicename, hostname))
+    success('Successfully disabled active checks for service "{0}" on host'
+            '"{1}"'.format(servicename, hostname))
+    scheduled_check = time.time() + 4
+    send_command('SCHEDULE_FORCED_SVC_CHECK;{0};{1};{2}'
+                 ''.format(hostname, servicename, scheduled_check))
+    time.sleep(execution_time + 4 + 5) # +5 as this is the transaction interval
+    last_check = float(run_query(start_time_query).get('start_time') or 0)
+    if not compare_time(last_check, scheduled_check + execution_time):
+        send_command('ENABLE_SVC_CHECK;{0};{1}'.format(hostname, servicename))
+        return fail('Could not schedule a forced check for service "{0}"'
+                    ' on host "{1}" while active checks were disabled'
+                    ''.format(servicename, hostname))
+    success('Successfully scheduled a forced check for service "{0}" '
+            'on host "{1}" while active checks were disabled'
+            ''.format(servicename, hostname))
+    send_command('ENABLE_SVC_CHECK;{0};{1}'.format(hostname, servicename))
+    scheduled_check = time.time() + 4
+    send_command('SCHEDULE_SVC_CHECK;{0};{1};{2}'
+                 ''.format(hostname, servicename, scheduled_check))
+    time.sleep(execution_time + 4 + 5) # +5 as this is the transaction interval
+    last_check = float(run_query(start_time_query).get('start_time') or 0)
+    if not compare_time(last_check, scheduled_check + execution_time):
+        return fail('Could not schedule a check after re-enabling '
+                    'active checks for service "{0}" on host "{1}"'
+                    ''.format(servicename, hostname))
+    return success('Successfully scheduled a check for service "{0}" '
+                   'on host "{1}" after re-enabling active checks'
+                   ''.format(servicename, hostname))
+
+
 def main():
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
@@ -546,6 +671,9 @@ def main():
 
     failure = test_delay_service_notification('localhost', 'disk')
     failure = test_delay_host_notification('localhost')
+
+    failure = test_disabling_scheduling_host_checks('localhost')
+    failure = test_disabling_scheduling_service_checks('localhost', 'disk')
 
     return 1 if failure else 0
 

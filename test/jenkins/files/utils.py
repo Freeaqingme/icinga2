@@ -62,7 +62,8 @@ def _parse_mysql_result(resultset):
         if header is None:
             header = columns
         else:
-            result.append(dict((header[i], v) for i, v in enumerate(columns)))
+            result.append(dict((header[i], v if v != 'NULL' else None)
+                               for i, v in enumerate(columns)))
     return result
 
 
