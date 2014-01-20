@@ -867,6 +867,280 @@ def test_custom_svc_notifications(hostname, servicename):
                    ' "{1}" after notifications were re-enabled'.format(servicename, hostname))
 
 
+def test_hostgroup_commands():
+    # This test requires the "files/configs/groups.conf" configuration file
+    failure = False
+    send_command('CHANGE_HOST_MODATTR;localhost;0')
+    localhost_services = [d['description']
+                          for d in send_query('GET services\nColumns: description'
+                                              '\nFilter: host_name = localhost')]
+    for svc_desc in localhost_services:
+        send_command('CHANGE_SVC_MODATTR;localhost;{0};0'.format(svc_desc))
+
+    send_command('DISABLE_HOSTGROUP_HOST_CHECKS;linux-servers')
+    send_command('DISABLE_HOSTGROUP_PASSIVE_HOST_CHECKS;linux-servers')
+    send_command('DISABLE_HOSTGROUP_HOST_NOTIFICATIONS;linux-servers')
+    host_info = get_one('GET hosts\nFilter: name = localhost')
+    if host_info['active_checks_enabled'] != 0:
+        fail('Could not disable active checks for host "{0}" that is part'
+             ' of hostgroup "linux-servers"'.format(host_info['name']))
+        failure = True
+    else:
+        success('Successfully disabled active checks for host "{0}" that is '
+                'part of hostgroup "linux-servers"'.format(host_info['name']))
+    if host_info['accept_passive_checks'] != 0:
+        fail('Could not disable passive checks for host "{0}" that is part'
+             ' of hostgroup "linux-servers"'.format(host_info['name']))
+        failure = True
+    else:
+        success('Successfully disabled passive checks for host "{0}" that is '
+                'part of hostgroup "linux-servers"'.format(host_info['name']))
+    if host_info['notifications_enabled'] != 0:
+        fail('Could not disable notifications for host "{0}" that is part'
+             ' of hostgroup "linux-servers"'.format(host_info['name']))
+        failure = True
+    else:
+        success('Successfully disabled notifications for host "{0}" that is '
+                'part of hostgroup "linux-servers"'.format(host_info['name']))
+
+    send_command('ENABLE_HOSTGROUP_HOST_CHECKS;linux-servers')
+    send_command('ENABLE_HOSTGROUP_PASSIVE_HOST_CHECKS;linux-servers')
+    send_command('ENABLE_HOSTGROUP_HOST_NOTIFICATIONS;linux-servers')
+    host_info = get_one('GET hosts\nFilter: name = localhost')
+    if host_info['active_checks_enabled'] != 1:
+        fail('Could not enable active checks for host "{0}" that is part'
+             ' of hostgroup "linux-servers"'.format(host_info['name']))
+        failure = True
+    else:
+        success('Successfully enabled active checks for host "{0}" that is '
+                'part of hostgroup "linux-servers"'.format(host_info['name']))
+    if host_info['accept_passive_checks'] != 1:
+        fail('Could not enable passive checks for host "{0}" that is part'
+             ' of hostgroup "linux-servers"'.format(host_info['name']))
+        failure = True
+    else:
+        success('Successfully enabled passive checks for host "{0}" that is '
+                'part of hostgroup "linux-servers"'.format(host_info['name']))
+    if host_info['notifications_enabled'] != 1:
+        fail('Could not enable notifications for host "{0}" that is part'
+             ' of hostgroup "linux-servers"'.format(host_info['name']))
+        failure = True
+    else:
+        success('Successfully enabled notifications for host "{0}" that is '
+                'part of hostgroup "linux-servers"'.format(host_info['name']))
+
+    send_command('DISABLE_HOSTGROUP_SVC_CHECKS;linux-servers')
+    send_command('DISABLE_HOSTGROUP_PASSIVE_SVC_CHECKS;linux-servers')
+    send_command('DISABLE_HOSTGROUP_SVC_NOTIFICATIONS;linux-servers')
+    for svc_info in send_query('GET services\nFilter: host_name = localhost'):
+        if svc_info['active_checks_enabled'] != 0:
+            fail('Could not disable active checks for service "{0}" on '
+                 'host "{1}" that is part of hostgroup "linux-servers"'
+                 ''.format(svc_info['description'], svc_info['host_name']))
+            failure = True
+        else:
+            success('Successfully disabled active checks for service "{0}" '
+                    'on host "{1}" that is part of hostgroup "linux-servers"'
+                    ''.format(svc_info['description'], svc_info['host_name']))
+        if svc_info['accept_passive_checks'] != 0:
+            fail('Could not disable passive checks for service "{0}" on '
+                 'host "{1}" that is part of hostgroup "linux-servers"'
+                 ''.format(svc_info['description'], svc_info['host_name']))
+            failure = True
+        else:
+            success('Successfully disabled passive checks for service "{0}" '
+                    'on host "{1}" that is part of hostgroup "linux-servers"'
+                    ''.format(svc_info['description'], svc_info['host_name']))
+        if svc_info['notifications_enabled'] != 0:
+            fail('Could not disable notifications for service "{0}" on '
+                 'host "{1}" that is part of hostgroup "linux-servers"'
+                 ''.format(svc_info['description'], svc_info['host_name']))
+            failure = True
+        else:
+            success('Successfully disabled notifications for service "{0}" on'
+                    ' host "{1}" that is part of hostgroup "linux-servers"'
+                    ''.format(svc_info['description'], svc_info['host_name']))
+
+    send_command('ENABLE_HOSTGROUP_SVC_CHECKS;linux-servers')
+    send_command('ENABLE_HOSTGROUP_PASSIVE_SVC_CHECKS;linux-servers')
+    send_command('ENABLE_HOSTGROUP_SVC_NOTIFICATIONS;linux-servers')
+    for svc_info in send_query('GET services\nFilter: host_name = localhost'):
+        if svc_info['active_checks_enabled'] != 1:
+            fail('Could not enable active checks for service "{0}" on '
+                 'host "{1}" that is part of hostgroup "linux-servers"'
+                 ''.format(svc_info['description'], svc_info['host_name']))
+            failure = True
+        else:
+            success('Successfully enabled active checks for service "{0}" '
+                    'on host "{1}" that is part of hostgroup "linux-servers"'
+                    ''.format(svc_info['description'], svc_info['host_name']))
+        if svc_info['accept_passive_checks'] != 1:
+            fail('Could not enable passive checks for service "{0}" on '
+                 'host "{1}" that is part of hostgroup "linux-servers"'
+                 ''.format(svc_info['description'], svc_info['host_name']))
+            failure = True
+        else:
+            success('Successfully enabled passive checks for service "{0}" '
+                    'on host "{1}" that is part of hostgroup "linux-servers"'
+                    ''.format(svc_info['description'], svc_info['host_name']))
+        if svc_info['notifications_enabled'] != 1:
+            fail('Could not enable notifications for service "{0}" on '
+                 'host "{1}" that is part of hostgroup "linux-servers"'
+                 ''.format(svc_info['description'], svc_info['host_name']))
+            failure = True
+        else:
+            success('Successfully enabled notifications for service "{0}" on'
+                    ' host "{1}" that is part of hostgroup "linux-servers"'
+                    ''.format(svc_info['description'], svc_info['host_name']))
+
+    return failure
+
+
+def test_servicegroup_commands():
+    # This test requires the "files/configs/groups.conf" configuration file
+    failure = False
+    send_command('CHANGE_HOST_MODATTR;localhost;0')
+    aservicegroup_services = send_query('GET services\nColumns: description host_name'
+                                        '\nFilter: groups >= aservicegroup')
+    for svc_info in aservicegroup_services:
+        send_command('CHANGE_SVC_MODATTR;{0};{1};0'.format(svc_info['host_name'],
+                                                           svc_info['description']))
+
+    send_command('DISABLE_SERVICEGROUP_HOST_CHECKS;aservicegroup')
+    send_command('DISABLE_SERVICEGROUP_HOST_NOTIFICATIONS;aservicegroup')
+    send_command('DISABLE_SERVICEGROUP_PASSIVE_HOST_CHECKS;aservicegroup')
+    aservicegroup_hosts = send_query('GET hosts\nFilter: name = localhost')
+    for host_info in aservicegroup_hosts:
+        if host_info['active_checks_enabled'] != 0:
+            fail('Could not disable active checks for host "{0}" which has'
+                 ' services that are part of servicegroup "aservicegroup"'
+                 ''.format(host_info['name']))
+            failure = True
+        else:
+            success('Successfully disabled active checks for host "{0}" which '
+                    'has services that are part of servicegroup "aservicegroup"'
+                    ''.format(host_info['name']))
+        if host_info['accept_passive_checks'] != 0:
+            fail('Could not disable passive checks for host "{0}" which has'
+                 ' services that are part of servicegroup "aservicegroup"'
+                 ''.format(host_info['name']))
+            failure = True
+        else:
+            success('Successfully disabled passive checks for host "{0}" which '
+                    'has services that are part of servicegroup "aservicegroup"'
+                    ''.format(host_info['name']))
+        if host_info['notifications_enabled'] != 0:
+            fail('Could not disable notifications for host "{0}" which has'
+                 ' services that are part of servicegroup "aservicegroup"'
+                 ''.format(host_info['name']))
+            failure = True
+        else:
+            success('Successfully disabled notifications for host "{0}" which '
+                    'has services that are part of servicegroup "aservicegroup"'
+                    ''.format(host_info['name']))
+
+    send_command('ENABLE_SERVICEGROUP_HOST_CHECKS;aservicegroup')
+    send_command('ENABLE_SERVICEGROUP_HOST_NOTIFICATIONS;aservicegroup')
+    send_command('ENABLE_SERVICEGROUP_PASSIVE_HOST_CHECKS;aservicegroup')
+    aservicegroup_hosts = send_query('GET hosts\nFilter: name = localhost')
+    for host_info in aservicegroup_hosts:
+        if host_info['active_checks_enabled'] != 1:
+            fail('Could not enable active checks for host "{0}" which has'
+                 ' services that are part of servicegroup "aservicegroup"'
+                 ''.format(host_info['name']))
+            failure = True
+        else:
+            success('Successfully enabled active checks for host "{0}" which '
+                    'has services that are part of servicegroup "aservicegroup"'
+                    ''.format(host_info['name']))
+        if host_info['accept_passive_checks'] != 1:
+            fail('Could not enable passive checks for host "{0}" which has'
+                 ' services that are part of servicegroup "aservicegroup"'
+                 ''.format(host_info['name']))
+            failure = True
+        else:
+            success('Successfully enabled passive checks for host "{0}" which '
+                    'has services that are part of servicegroup "aservicegroup"'
+                    ''.format(host_info['name']))
+        if host_info['notifications_enabled'] != 1:
+            fail('Could not enable notifications for host "{0}" which has'
+                 ' services that are part of servicegroup "aservicegroup"'
+                 ''.format(host_info['name']))
+            failure = True
+        else:
+            success('Successfully enabled notifications for host "{0}" which '
+                    'has services that are part of servicegroup "aservicegroup"'
+                    ''.format(host_info['name']))
+
+    send_command('DISABLE_SERVICEGROUP_SVC_CHECKS;aservicegroup')
+    send_command('DISABLE_SERVICEGROUP_SVC_NOTIFICATIONS;aservicegroup')
+    send_command('DISABLE_SERVICEGROUP_PASSIVE_SVC_CHECKS;aservicegroup')
+    aservicegroup_services = send_query('GET services\nFilter: groups >= aservicegroup')
+    for svc_info in aservicegroup_services:
+        if svc_info['active_checks_enabled'] != 0:
+            fail('Could not disable active checks for service "{0}"'
+                 ' that is part of servicegroup "aservicegroup"'
+                 ''.format(svc_info['description']))
+            failure = True
+        else:
+            success('Successfully disabled active checks for service '
+                    '"{0}" that is part of servicegroup "aservicegroup"'
+                    ''.format(svc_info['description']))
+        if svc_info['accept_passive_checks'] != 0:
+            fail('Could not disable passive checks for service "{0}"'
+                 ' that is part of servicegroup "aservicegroup"'
+                 ''.format(svc_info['description']))
+            failure = True
+        else:
+            success('Successfully disabled passive checks for service '
+                    '"{0}" that is part of servicegroup "aservicegroup"'
+                    ''.format(svc_info['description']))
+        if svc_info['notifications_enabled'] != 0:
+            fail('Could not disable notifications for service "{0}"'
+                 ' that is part of servicegroup "aservicegroup"'
+                 ''.format(svc_info['description']))
+            failure = True
+        else:
+            success('Successfully disabled notifications for service '
+                    '"{0}" that is part of servicegroup "aservicegroup"'
+                    ''.format(svc_info['description']))
+
+    send_command('ENABLE_SERVICEGROUP_SVC_CHECKS;aservicegroup')
+    send_command('ENABLE_SERVICEGROUP_SVC_NOTIFICATIONS;aservicegroup')
+    send_command('ENABLE_SERVICEGROUP_PASSIVE_SVC_CHECKS;aservicegroup')
+    aservicegroup_services = send_query('GET services\nFilter: groups >= aservicegroup')
+    for svc_info in aservicegroup_services:
+        if svc_info['active_checks_enabled'] != 1:
+            fail('Could not enable active checks for service "{0}"'
+                 ' that is part of servicegroup "aservicegroup"'
+                 ''.format(svc_info['description']))
+            failure = True
+        else:
+            success('Successfully enabled active checks for service '
+                    '"{0}" that is part of servicegroup "aservicegroup"'
+                    ''.format(svc_info['description']))
+        if svc_info['accept_passive_checks'] != 1:
+            fail('Could not enable passive checks for service "{0}"'
+                 ' that is part of servicegroup "aservicegroup"'
+                 ''.format(svc_info['description']))
+            failure = True
+        else:
+            success('Successfully enabled passive checks for service '
+                    '"{0}" that is part of servicegroup "aservicegroup"'
+                    ''.format(svc_info['description']))
+        if svc_info['notifications_enabled'] != 1:
+            fail('Could not enable notifications for service "{0}"'
+                 ' that is part of servicegroup "aservicegroup"'
+                 ''.format(svc_info['description']))
+            failure = True
+        else:
+            success('Successfully enabled notifications for service '
+                    '"{0}" that is part of servicegroup "aservicegroup"'
+                    ''.format(svc_info['description']))
+
+    return failure
+
+
 def main():
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
@@ -911,6 +1185,9 @@ def main():
 
     failure = test_custom_host_notifications('localhost')
     failure = test_custom_svc_notifications('localhost', 'disk')
+
+    failure = test_hostgroup_commands()
+    failure = test_servicegroup_commands()
 
     return 1 if failure else 0
 
