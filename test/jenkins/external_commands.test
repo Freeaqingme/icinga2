@@ -780,6 +780,93 @@ def test_process_file(hostname):
     return success('All commands were processed by PROCESS_FILE')
 
 
+def test_custom_host_notifications(hostname):
+    check_time = lambda a, b: -1 < (a - b) < 1
+
+    send_command('DISABLE_HOST_NOTIFICATIONS;{0}'.format(hostname))
+    sent_at = time.time()
+    send_command('SEND_CUSTOM_HOST_NOTIFICATION;{0};0;{1};test'
+                 ''.format(hostname, USERNAME))
+    last_notification = get_one('GET hosts\nFilter: name = {0}'
+                                '\nColumns: last_notification'
+                                ''.format(hostname))['last_notification']
+    if check_time(last_notification, sent_at):
+        send_command('ENABLE_HOST_NOTIFICATIONS;{0}'.format(hostname))
+        return fail('Sent a custom host notification for host "{0}" while'
+                    ' notifications were disabled'.format(hostname))
+    success('It is not possible to send custom host notifications for host'
+            ' "{0}" while notifications are disabled'.format(hostname))
+    sent_at = time.time()
+    send_command('SEND_CUSTOM_HOST_NOTIFICATION;{0};2;{1};test'
+                 ''.format(hostname, USERNAME))
+    last_notification = get_one('GET hosts\nFilter: name = {0}'
+                                '\nColumns: last_notification'
+                                ''.format(hostname))['last_notification']
+    if not check_time(last_notification, sent_at):
+        send_command('ENABLE_HOST_NOTIFICATIONS;{0}'.format(hostname))
+        return fail('Could not send a forced custom notification for host "{0}"'
+                    ' while notifications were disabled'.format(hostname))
+    success('Successfully sent a forced custom notification for host '
+            '"{0}" while notifications were disabled'.format(hostname))
+    send_command('ENABLE_HOST_NOTIFICATIONS;{0}'.format(hostname))
+    sent_at = time.time()
+    send_command('SEND_CUSTOM_HOST_NOTIFICATION;{0};0;{1};test'
+                 ''.format(hostname, USERNAME))
+    last_notification = get_one('GET hosts\nFilter: name = {0}'
+                                '\nColumns: last_notification'
+                                ''.format(hostname))['last_notification']
+    if not check_time(last_notification, sent_at):
+        return fail('Could not send a custom host notification for host "{0}"'
+                    ' after notifications were re-enabled'.format(hostname))
+    return success('Successfully sent a a custom host notification for host "{0}"'
+                   ' after notifications were re-enabled'.format(hostname))
+
+
+def test_custom_svc_notifications(hostname, servicename):
+    check_time = lambda a, b: -1 < (a - b) < 1
+
+    send_command('DISABLE_SVC_NOTIFICATIONS;{0};{1}'.format(hostname, servicename))
+    sent_at = time.time()
+    send_command('SEND_CUSTOM_SVC_NOTIFICATION;{0};{1};0;{2};test'
+                 ''.format(hostname, servicename, USERNAME))
+    last_notification = get_one('GET services\nFilter: host_name = {0}'
+                                '\nFilter: description = {1}'
+                                '\nColumns: last_notification'
+                                ''.format(hostname, servicename))['last_notification']
+    if check_time(last_notification, sent_at):
+        send_command('ENABLE_SVC_NOTIFICATIONS;{0};{1}'.format(hostname, servicename))
+        return fail('Sent a custom service notification for service "{0}" on host "{1}"'
+                    ' while notifications were disabled'.format(servicename, hostname))
+    success('It is not possible to send custom service notifications for service "{0}" on'
+            ' host "{1}" while notifications are disabled'.format(servicename, hostname))
+    sent_at = time.time()
+    send_command('SEND_CUSTOM_SVC_NOTIFICATION;{0};{1};2;{2};test'
+                 ''.format(hostname, servicename, USERNAME))
+    last_notification = get_one('GET services\nFilter: host_name = {0}'
+                                '\nFilter: description = {1}'
+                                '\nColumns: last_notification'
+                                ''.format(hostname, servicename))['last_notification']
+    if not check_time(last_notification, sent_at):
+        send_command('ENABLE_SVC_NOTIFICATIONS;{0};{1}'.format(hostname, servicename))
+        return fail('Could not send a forced custom notification for service "{0}" on host '
+                    '"{1}" while notifications were disabled'.format(servicename, hostname))
+    success('Successfully sent a forced custom notification for service "{0}" on host'
+            ' "{0}" while notifications were disabled'.format(servicename, hostname))
+    send_command('ENABLE_SVC_NOTIFICATIONS;{0};{1}'.format(hostname, servicename))
+    sent_at = time.time()
+    send_command('SEND_CUSTOM_SVC_NOTIFICATION;{0};{1};0;{2};test'
+                 ''.format(hostname, servicename, USERNAME))
+    last_notification = get_one('GET services\nFilter: host_name = {0}'
+                                '\nFilter: description = {1}'
+                                '\nColumns: last_notification'
+                                ''.format(hostname, servicename))['last_notification']
+    if not check_time(last_notification, sent_at):
+        return fail('Could not send a custom service notification for service "{0}" on host '
+                    '"{1}" after notifications were re-enabled'.format(servicename, hostname))
+    return success('Successfully sent a custom service notification for service "{0}" on host'
+                   ' "{1}" after notifications were re-enabled'.format(servicename, hostname))
+
+
 def main():
     failure = test_host_comments('localhost')
     failure = test_host_comments('nsca-ng')
@@ -821,6 +908,9 @@ def main():
     failure = test_passive_svc_checkresult_processing('localhost', 'disk')
 
     failure = test_process_file('localhost')
+
+    failure = test_custom_host_notifications('localhost')
+    failure = test_custom_svc_notifications('localhost', 'disk')
 
     return 1 if failure else 0
 
